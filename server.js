@@ -1,53 +1,25 @@
-// server.js
-
-// This file should run on a server (e.g., using Node.js)
-// It connects to Firebase and listens for new registrations,
-// then sends notifications to your Telegram bot.
-
-// =================================================================
-// 1. Installation:
-// In your terminal, run:
-// npm install node-telegram-bot-api firebase-admin express body-parser cors
-// =================================================================
+// server.js (Updated and Corrected for Replit Secrets)
 
 const TelegramBot = require('node-telegram-bot-api');
 const admin = require('firebase-admin');
 const express = require('express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
 
-// =================================================================
-// 2. Configuration (IMPORTANT: Use Environment Variables in production)
-// =================================================================
+// --- Configuration ---
+// Read secrets from Replit's Secrets (Environment Variables)
+const token = process.env.TELEGRAM_TOKEN || '8306898791:AAFRzDH3Yn7J_4TIB3jLq0MbTPnMZ9fBxkI';
+const adminChatId = process.env.ADMIN_CHAT_ID || '1027599858';
 
-// Your Telegram Bot Token (from BotFather)
-// !! SECURITY WARNING !!
-// In a real project, NEVER hardcode this. Use process.env.TELEGRAM_TOKEN
-const token = '8306898791:AAFRzDH3Yn7J_4TIB3jLq0MbTPnMZ9fBxkI';
+// IMPORTANT: This line reads the secret key from the "Secrets" tab, NOT from a file.
+const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
 
-// Your personal Telegram Chat ID (the bot will send messages to you)
-// This is now set to your specific ID.
-const adminChatId = '1027599858'; 
-
-// Firebase Admin SDK Configuration
-// 1. Go to your Firebase project settings > Service accounts.
-// 2. Click "Generate new private key" and download the JSON file.
-// 3. Place the file in your project folder and rename it to "serviceAccountKey.json".
-// !! SECURITY WARNING !!
-// Make sure the serviceAccountKey.json file is NOT publicly accessible.
-const serviceAccount = require('./serviceAccountKey.json');
-
+// Initialize Firebase Admin SDK with the secret
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
+  credential: admin.credential.cert(serviceAccount)
 });
 
 const db = admin.firestore();
 const bot = new TelegramBot(token, { polling: true });
 const app = express();
-
-app.use(cors());
-app.use(bodyParser.json());
 
 console.log('✅ Telegram Bot server started and listening for Firebase changes...');
 
@@ -70,8 +42,8 @@ function setupListener(collectionName, type) {
                 if(data.priceAfter) message += `*السعر المخفض:* ${data.priceAfter} د.ع\n`;
                 if(data.proofFiles && data.proofFiles.length > 0) {
                     message += `\n*الإثباتات:*\n`;
-                    data.proofFiles.forEach((file, index) => {
-                        message += `[ملف ${index + 1}](${file})\n`;
+                    data.proofFiles.forEach((fileUrl, index) => {
+                        message += `[ملف ${index + 1}](${fileUrl})\n`;
                     });
                 }
 
@@ -103,10 +75,8 @@ bot.on('callback_query', async (query) => {
     const [action, type, docId] = query.data.split('_');
     const fromId = query.from.id;
 
-    // Security check: only the admin can approve/reject
     if (fromId.toString() !== adminChatId) {
-        bot.answerCallbackQuery(query.id, { text: 'Permission Denied!' });
-        return;
+        return bot.answerCallbackQuery(query.id, { text: 'Permission Denied!' });
     }
 
     const pendingCollection = `pending_${type}s`;
@@ -117,22 +87,17 @@ bot.on('callback_query', async (query) => {
         const doc = await docRef.get();
         if (!doc.exists) {
             bot.answerCallbackQuery(query.id, { text: 'الطلب لم يعد موجوداً' });
-            bot.editMessageText(`*تم التعامل مع هذا الطلب مسبقاً.*`, {
+            return bot.editMessageText(`*تم التعامل مع هذا الطلب مسبقاً.*`, {
                 chat_id: query.message.chat.id,
                 message_id: query.message.message_id,
                 parse_mode: 'Markdown'
             });
-            return;
         }
         const data = doc.data();
 
         if (action === 'approve') {
-            // 1. Add to the public (approved) collection
             await db.collection(approvedCollection).doc(docId).set({ ...data, status: 'approved', approvedAt: new Date() });
-            
-            // 2. Delete from the pending collection
             await docRef.delete();
-
             bot.editMessageText(`✅ *تمت الموافقة على ${data.name || 'الطلب'}*`, {
                 chat_id: query.message.chat.id,
                 message_id: query.message.message_id,
@@ -141,7 +106,6 @@ bot.on('callback_query', async (query) => {
             bot.answerCallbackQuery(query.id, { text: 'تمت الموافقة' });
 
         } else if (action === 'reject') {
-            // Just delete the pending request
             await docRef.delete();
             bot.editMessageText(`❌ *تم رفض ${data.name || 'الطلب'}*`, {
                 chat_id: query.message.chat.id,
@@ -156,7 +120,7 @@ bot.on('callback_query', async (query) => {
     }
 });
 
-// A simple endpoint to confirm the server is running
+// This part creates a simple webpage to keep the Replit project "awake"
 app.get('/', (req, res) => {
     res.send('Nabd Akhar Bot Server is running!');
 });
